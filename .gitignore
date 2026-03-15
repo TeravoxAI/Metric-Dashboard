@@ -29,3 +29,7 @@ dist-ssr
 # OpenRouter CSV exports
 *.csv
 public/data/
+
+
+.venv
+CLAUDE.md
