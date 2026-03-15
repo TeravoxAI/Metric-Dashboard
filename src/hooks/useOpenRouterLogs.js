@@ -5,11 +5,15 @@ const CSV_FILES = ['/data/jan-feb.csv', '/data/feb-mar.csv']
 
 async function fetchAndMerge() {
   const results = await Promise.all(
-    CSV_FILES.map(url => fetch(url).then(r => r.text()))
+    CSV_FILES.map(async (url) => {
+      const res = await fetch(url)
+      if (!res.ok) return []
+      const text = await res.text()
+      try { return parseCSV(text) } catch { return [] }
+    })
   )
-  const rows = results.flatMap(parseCSV)
+  const rows = results.flat()
 
-  // Normalize types
   return rows.map(r => ({
     generation_id: r.generation_id,
     created_at: r.created_at,
@@ -33,6 +37,6 @@ export function useOpenRouterLogs() {
   return useQuery({
     queryKey: ['openrouter-logs'],
     queryFn: fetchAndMerge,
-    staleTime: Infinity, // static files, never refetch
+    staleTime: Infinity,
   })
 }
