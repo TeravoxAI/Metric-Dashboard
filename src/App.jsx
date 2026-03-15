@@ -9,6 +9,7 @@ import { ContentSection } from './sections/ContentSection'
 import { Explorer } from './pages/Explorer'
 import { Login } from './pages/Login'
 import { useAuth } from './hooks/useAuth'
+import { ErrorBoundary } from './components/ErrorBoundary'
 
 const queryClient = new QueryClient()
 
@@ -32,10 +33,12 @@ function AuthGate() {
   return (
     <div className="min-h-screen bg-gray-50">
       <Nav onLogout={logout} />
-      <Routes>
-        <Route path="/" element={<Dashboard />} />
-        <Route path="/explorer" element={<Explorer />} />
-      </Routes>
+      <ErrorBoundary>
+        <Routes>
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/explorer" element={<Explorer />} />
+        </Routes>
+      </ErrorBoundary>
     </div>
   )
 }
