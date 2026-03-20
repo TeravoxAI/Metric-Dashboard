@@ -1,6 +1,12 @@
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 
+function parseMetadata(raw) {
+  if (!raw) return {}
+  if (typeof raw === 'object') return raw
+  try { return JSON.parse(raw) } catch { return {} }
+}
+
 export function useLessonPlanStats() {
   return useQuery({
     queryKey: ['lesson-plan-stats'],
@@ -9,7 +15,7 @@ export function useLessonPlanStats() {
         .from('lesson_plans')
         .select('id, grade_level, subject, lesson_type, metadata, created_at')
       if (error) throw error
-      return data
+      return data.map(r => ({ ...r, metadata: parseMetadata(r.metadata) }))
     },
     staleTime: 5 * 60 * 1000,
   })
@@ -44,7 +50,7 @@ export function useContentStats() {
       return {
         textbooks: textbooks.data,
         sowEntries: sowEntries.data,
-        exams: exams.data,
+        exams: exams.data.map(r => ({ ...r, metadata: parseMetadata(r.metadata) })),
       }
     },
     staleTime: 10 * 60 * 1000,
@@ -73,24 +79,30 @@ export function useExplorerData() {
       const userMap = Object.fromEntries(usersRes.data.map(u => [u.id, u]))
       const textbookMap = Object.fromEntries(textbooksRes.data.map(t => [t.id, t]))
 
-      const plans = plansRes.data.map(p => ({
-        ...p,
-        _service: 'lesson_plan',
-        // normalize grade to "Grade X" for consistent filtering
-        _grade: p.grade_level,
-        _cost: p.metadata?.cost ?? 0,
-        user: userMap[p.created_by_id] ?? null,
-        textbook: textbookMap[p.textbook_id] ?? null,
-      }))
+      const plans = plansRes.data.map(p => {
+        const meta = parseMetadata(p.metadata)
+        return {
+          ...p,
+          metadata: meta,
+          _service: 'lesson_plan',
+          _grade: p.grade_level,
+          _cost: meta.cost ?? 0,
+          user: userMap[p.created_by_id] ?? null,
+          textbook: textbookMap[p.textbook_id] ?? null,
+        }
+      })
 
-      const exams = examsRes.data.map(e => ({
-        ...e,
-        _service: 'exam',
-        // normalize exam grade "2" → "Grade 2"
-        _grade: e.grade ? `Grade ${e.grade}` : null,
-        _cost: e.metadata?.cost?.total_cost ?? 0,
-        user: userMap[e.created_by] ?? null,
-      }))
+      const exams = examsRes.data.map(e => {
+        const meta = parseMetadata(e.metadata)
+        return {
+          ...e,
+          metadata: meta,
+          _service: 'exam',
+          _grade: e.grade ? `Grade ${e.grade}` : null,
+          _cost: meta.cost?.total_cost ?? 0,
+          user: userMap[e.created_by] ?? null,
+        }
+      })
 
       return { plans, exams, users: usersRes.data, textbooks: textbooksRes.data }
     },
@@ -124,7 +136,7 @@ export function useActivePlansPerDay(days = 30) {
         .gte('created_at', since.toISOString())
         .order('created_at', { ascending: true })
       if (error) throw error
-      return data
+      return data.map(r => ({ ...r, metadata: parseMetadata(r.metadata) }))
     },
     staleTime: 5 * 60 * 1000,
   })

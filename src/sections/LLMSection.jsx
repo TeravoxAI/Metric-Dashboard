@@ -49,7 +49,7 @@ export function LLMSection() {
 
   const stats = useMemo(() => {
     if (!data) return null
-    let totalCost = 0, totalTokens = 0, totalInput = 0, totalOutput = 0, totalTime = 0, count = 0
+let totalCost = 0, totalTokens = 0, totalInput = 0, totalOutput = 0, totalTime = 0, count = 0
     for (const row of data) {
       const m = row.metadata ?? {}
       totalCost += m.cost ?? 0
