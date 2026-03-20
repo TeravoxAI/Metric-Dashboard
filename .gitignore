@@ -26,10 +26,6 @@ dist-ssr
 .env
 .env.example
 
-# OpenRouter CSV exports
-*.csv
-public/data/
-
 
 .venv
 CLAUDE.md

@@ -1,7 +1,7 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Nav } from './components/Nav'
-import { OpenRouterSection } from './sections/OpenRouterSection'
+import { LLMSection } from './sections/LLMSection'
 import { GenerationSection } from './sections/GenerationSection'
 import { ExamGenerationSection } from './sections/ExamGenerationSection'
 import { UserSection } from './sections/UserSection'
@@ -16,7 +16,7 @@ const queryClient = new QueryClient()
 function Dashboard() {
   return (
     <main className="mx-auto max-w-6xl space-y-12 px-6 py-8">
-      <OpenRouterSection />
+      <LLMSection />
       <GenerationSection />
       <ExamGenerationSection />
       <UserSection />
