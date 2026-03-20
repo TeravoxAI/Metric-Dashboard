@@ -124,6 +124,20 @@ export function useExamStats() {
   })
 }
 
+export function useExamCostStats() {
+  return useQuery({
+    queryKey: ['exam-cost-stats'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('generated_exams')
+        .select('id, grade, subject, metadata, created_at')
+      if (error) throw error
+      return data.map(r => ({ ...r, metadata: parseMetadata(r.metadata) }))
+    },
+    staleTime: 5 * 60 * 1000,
+  })
+}
+
 export function useActivePlansPerDay(days = 30) {
   return useQuery({
     queryKey: ['plans-per-day', days],

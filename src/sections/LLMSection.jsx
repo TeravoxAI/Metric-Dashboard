@@ -1,57 +1,79 @@
 import { useMemo } from 'react'
-import { DollarSign, Zap, Clock, TrendingUp, ArrowUp, ArrowDown } from 'lucide-react'
+import { DollarSign, Zap, Clock, TrendingUp, FileText, FileQuestion } from 'lucide-react'
 import { StatCard } from '@/components/StatCard'
 import { SectionTitle } from '@/components/SectionTitle'
 import { BreakdownBar } from '@/components/charts/BreakdownBar'
-import { useLessonPlanStats } from '@/hooks/useMetrics'
+import { useLessonPlanStats, useExamCostStats } from '@/hooks/useMetrics'
 import { formatCost, formatNumber } from '@/lib/utils'
 import {
-  AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, Legend,
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, Legend,
 } from 'recharts'
 
-function groupByMonth(rows) {
+// ── helpers ──────────────────────────────────────────────────────────────────
+
+function groupByMonth(rows, getCost) {
   const map = {}
   for (const r of rows) {
-    const month = r.created_at.slice(0, 7)
-    const cost = r.metadata?.cost ?? 0
-    const input = r.metadata?.input_tokens ?? 0
-    const output = r.metadata?.output_tokens ?? 0
-    if (!map[month]) map[month] = { month, cost: 0, input_tokens: 0, output_tokens: 0 }
-    map[month].cost += cost
-    map[month].input_tokens += input
-    map[month].output_tokens += output
+    const month = (r.created_at ?? r.metadata?.timestamp ?? '').slice(0, 7)
+    if (!month) continue
+    map[month] = (map[month] || 0) + getCost(r)
   }
-  return Object.values(map)
-    .sort((a, b) => a.month.localeCompare(b.month))
-    .map(d => ({
-      ...d,
-      cost: +d.cost.toFixed(4),
-      input_tokens: Math.round(d.input_tokens),
-      output_tokens: Math.round(d.output_tokens),
-    }))
+  return Object.entries(map)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([month, cost]) => ({ month, cost: +cost.toFixed(4) }))
 }
 
-function costBy(rows, key) {
+function costBy(rows, key, getCost) {
   const map = {}
   for (const r of rows) {
     const val = r[key] || 'Unknown'
-    const cost = r.metadata?.cost ?? 0
-    map[val] = (map[val] || 0) + cost
+    map[val] = (map[val] || 0) + getCost(r)
   }
   return Object.entries(map)
     .sort(([, a], [, b]) => b - a)
     .map(([name, count]) => ({ name, count: +count.toFixed(4) }))
 }
 
-export function LLMSection() {
-  const { data, isLoading } = useLessonPlanStats()
+function lpCost(r) { return r.metadata?.cost ?? 0 }
+function examCost(r) { return r.metadata?.cost?.total_cost ?? 0 }
 
-  const stats = useMemo(() => {
-    if (!data) return null
-let totalCost = 0, totalTokens = 0, totalInput = 0, totalOutput = 0, totalTime = 0, count = 0
-    for (const row of data) {
-      const m = row.metadata ?? {}
+// ── sub-components ────────────────────────────────────────────────────────────
+
+function MonthlyChart({ data, color, label }) {
+  return (
+    <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm mb-6">
+      <p className="mb-4 text-sm font-medium text-gray-500">{label}</p>
+      <ResponsiveContainer width="100%" height={200}>
+        <AreaChart data={data}>
+          <defs>
+            <linearGradient id={`grad-${color.replace('#', '')}`} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor={color} stopOpacity={0.3} />
+              <stop offset="95%" stopColor={color} stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+          <XAxis dataKey="month" tick={{ fontSize: 11 }} tickLine={false} />
+          <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={v => `$${v}`} />
+          <Tooltip formatter={(v) => [`$${v}`, 'Cost']} />
+          <Area type="monotone" dataKey="cost" stroke={color} strokeWidth={2} fill={`url(#grad-${color.replace('#', '')})`} />
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}
+
+// ── main component ─────────────────────────────────────────────────────────────
+
+export function LLMSection() {
+  const { data: lpData, isLoading: lpLoading } = useLessonPlanStats()
+  const { data: examData, isLoading: examLoading } = useExamCostStats()
+
+  const lp = useMemo(() => {
+    if (!lpData) return null
+    let totalCost = 0, totalTokens = 0, totalInput = 0, totalOutput = 0, totalTime = 0, count = 0
+    for (const r of lpData) {
+      const m = r.metadata ?? {}
       totalCost += m.cost ?? 0
       totalTokens += m.total_tokens ?? 0
       totalInput += m.input_tokens ?? 0
@@ -60,123 +82,146 @@ let totalCost = 0, totalTokens = 0, totalInput = 0, totalOutput = 0, totalTime =
       count++
     }
     return {
-      totalCost,
-      avgCost: count ? totalCost / count : 0,
-      totalTokens,
-      totalInput,
-      totalOutput,
+      totalCost, avgCost: count ? totalCost / count : 0,
+      totalTokens, totalInput, totalOutput,
       avgTime: count ? totalTime / count : 0,
       count,
-      byMonth: groupByMonth(data),
-      bySubject: costBy(data, 'subject'),
-      byGrade: costBy(data, 'grade_level'),
-      byType: costBy(data, 'lesson_type'),
+      byMonth: groupByMonth(lpData, lpCost),
+      bySubject: costBy(lpData, 'subject', lpCost),
+      byGrade: costBy(lpData, 'grade_level', lpCost),
+      byType: costBy(lpData, 'lesson_type', lpCost),
     }
-  }, [data])
+  }, [lpData])
 
-  const loading = isLoading || !stats
+  const exam = useMemo(() => {
+    if (!examData) return null
+    let totalCost = 0, totalTokens = 0, totalInput = 0, totalOutput = 0, totalLatency = 0, count = 0
+    const modelMap = {}
+    for (const r of examData) {
+      const m = r.metadata ?? {}
+      const cost = m.cost?.total_cost ?? 0
+      totalCost += cost
+      totalTokens += m.total_tokens ?? 0
+      totalInput += m.input_tokens ?? 0
+      totalOutput += m.output_tokens ?? 0
+      totalLatency += m.api_latency_ms ?? 0
+      count++
+      if (m.model) modelMap[m.model] = (modelMap[m.model] || 0) + cost
+    }
+    return {
+      totalCost, avgCost: count ? totalCost / count : 0,
+      totalTokens, totalInput, totalOutput,
+      avgLatency: count ? totalLatency / count / 1000 : 0,
+      count,
+      byMonth: groupByMonth(examData, examCost),
+      byModel: Object.entries(modelMap).sort(([,a],[,b]) => b-a).map(([name, count]) => ({ name, count: +count.toFixed(4) })),
+      byGrade: costBy(examData, 'grade', examCost),
+      bySubject: costBy(examData, 'subject', examCost),
+    }
+  }, [examData])
+
+  const combined = useMemo(() => {
+    if (!lp || !exam) return null
+    // merge monthly series
+    const monthMap = {}
+    for (const d of lp.byMonth) {
+      monthMap[d.month] = { month: d.month, 'Lesson Plans': d.cost, 'Exams': 0 }
+    }
+    for (const d of exam.byMonth) {
+      if (!monthMap[d.month]) monthMap[d.month] = { month: d.month, 'Lesson Plans': 0, 'Exams': 0 }
+      monthMap[d.month]['Exams'] = d.cost
+    }
+    const byMonth = Object.values(monthMap).sort((a, b) => a.month.localeCompare(b.month))
+    return {
+      totalCost: lp.totalCost + exam.totalCost,
+      totalTokens: lp.totalTokens + exam.totalTokens,
+      byMonth,
+    }
+  }, [lp, exam])
+
+  const loading = lpLoading || examLoading || !lp || !exam || !combined
 
   return (
     <section>
-      <SectionTitle>API Cost — Lesson Plans</SectionTitle>
+      <SectionTitle>API Cost Overview</SectionTitle>
 
-      {/* Top stats */}
+      {/* ── Combined totals ── */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 mb-6">
-        <StatCard
-          title="Total Cost"
-          value={loading ? '…' : formatCost(stats.totalCost)}
-          sub="all time"
-          icon={DollarSign}
-        />
-        <StatCard
-          title="Avg Cost / Plan"
-          value={loading ? '…' : formatCost(stats.avgCost)}
-          sub={loading ? '' : `${formatNumber(stats.count)} plans`}
-          icon={TrendingUp}
-        />
-        <StatCard
-          title="Total Tokens"
-          value={loading ? '…' : formatNumber(stats.totalTokens)}
-          sub="all time"
-          icon={Zap}
-        />
-        <StatCard
-          title="Avg Gen Time"
-          value={loading ? '…' : `${stats.avgTime.toFixed(1)}s`}
-          icon={Clock}
-        />
+        <StatCard title="Total Combined Cost" value={loading ? '…' : formatCost(combined.totalCost)} sub="lesson plans + exams" icon={DollarSign} />
+        <StatCard title="Lesson Plan Cost" value={loading ? '…' : formatCost(lp.totalCost)} sub={loading ? '' : `${formatNumber(lp.count)} plans`} icon={FileText} />
+        <StatCard title="Exam Generation Cost" value={loading ? '…' : formatCost(exam.totalCost)} sub={loading ? '' : `${formatNumber(exam.count)} exams`} icon={FileQuestion} />
+        <StatCard title="Total Tokens" value={loading ? '…' : formatNumber(combined.totalTokens)} sub="all time" icon={Zap} />
       </div>
 
-      {/* Cost over time */}
+      {/* ── Combined monthly chart ── */}
       {!loading && (
-        <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm mb-6">
-          <p className="mb-4 text-sm font-medium text-gray-500">Monthly API Cost (USD)</p>
+        <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm mb-10">
+          <p className="mb-4 text-sm font-medium text-gray-500">Monthly Cost — Lesson Plans vs Exams (USD)</p>
           <ResponsiveContainer width="100%" height={220}>
-            <AreaChart data={stats.byMonth}>
+            <AreaChart data={combined.byMonth}>
               <defs>
-                <linearGradient id="costGrad" x1="0" y1="0" x2="0" y2="1">
+                <linearGradient id="lpGrad" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3} />
                   <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
+                </linearGradient>
+                <linearGradient id="examGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.3} />
+                  <stop offset="95%" stopColor="#f59e0b" stopOpacity={0} />
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
               <XAxis dataKey="month" tick={{ fontSize: 11 }} tickLine={false} />
-              <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-              <Tooltip formatter={(v) => [`$${v}`, 'Cost']} />
-              <Area
-                type="monotone"
-                dataKey="cost"
-                stroke="#6366f1"
-                strokeWidth={2}
-                fill="url(#costGrad)"
-              />
+              <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={v => `$${v}`} />
+              <Tooltip formatter={(v, name) => [`$${v}`, name]} />
+              <Legend />
+              <Area type="monotone" dataKey="Lesson Plans" stroke="#6366f1" strokeWidth={2} fill="url(#lpGrad)" />
+              <Area type="monotone" dataKey="Exams" stroke="#f59e0b" strokeWidth={2} fill="url(#examGrad)" />
             </AreaChart>
           </ResponsiveContainer>
         </div>
       )}
 
-      {/* Token breakdown by month */}
-      {!loading && (
-        <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm mb-6">
-          <p className="mb-4 text-sm font-medium text-gray-500">Monthly Token Usage — Input vs Output</p>
-          <div className="grid grid-cols-3 gap-4 mb-4 text-sm">
-            <div>
-              <p className="text-xs text-gray-400 flex items-center gap-1"><ArrowUp size={12} className="text-indigo-500" /> Total Input Tokens</p>
-              <p className="font-semibold text-gray-800">{formatNumber(stats.totalInput)}</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-400 flex items-center gap-1"><ArrowDown size={12} className="text-emerald-500" /> Total Output Tokens</p>
-              <p className="font-semibold text-gray-800">{formatNumber(stats.totalOutput)}</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-400">Output / Input Ratio</p>
-              <p className="font-semibold text-gray-800">
-                {stats.totalInput ? (stats.totalOutput / stats.totalInput).toFixed(2) : '—'}x
-              </p>
-            </div>
-          </div>
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={stats.byMonth}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-              <XAxis dataKey="month" tick={{ fontSize: 11 }} tickLine={false} />
-              <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-              <Tooltip formatter={(v) => [formatNumber(v), '']} />
-              <Legend />
-              <Bar dataKey="input_tokens" name="Input" stackId="a" fill="#6366f1" radius={[0, 0, 0, 0]} />
-              <Bar dataKey="output_tokens" name="Output" stackId="a" fill="#10b981" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+      {/* ── Lesson Plan costs ── */}
+      <div className="mb-2">
+        <h3 className="text-base font-semibold text-gray-700 mb-4">Lesson Plan Generation</h3>
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 mb-6">
+          <StatCard title="Total Cost" value={loading ? '…' : formatCost(lp.totalCost)} icon={DollarSign} />
+          <StatCard title="Avg Cost / Plan" value={loading ? '…' : formatCost(lp.avgCost)} icon={TrendingUp} />
+          <StatCard title="Total Tokens" value={loading ? '…' : formatNumber(lp.totalTokens)} icon={Zap} />
+          <StatCard title="Avg Gen Time" value={loading ? '…' : `${lp.avgTime.toFixed(1)}s`} icon={Clock} />
         </div>
-      )}
+        {!loading && (
+          <>
+            <MonthlyChart data={lp.byMonth} color="#6366f1" label="Monthly Lesson Plan Cost (USD)" />
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 mb-10">
+              <BreakdownBar title="Cost by Subject (USD)" data={lp.bySubject} />
+              <BreakdownBar title="Cost by Grade (USD)" data={lp.byGrade} />
+              <BreakdownBar title="Cost by Plan Type (USD)" data={lp.byType} />
+            </div>
+          </>
+        )}
+      </div>
 
-      {/* Cost breakdowns */}
-      {!loading && (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <BreakdownBar title="Cost by Subject (USD)" data={stats.bySubject} />
-          <BreakdownBar title="Cost by Grade (USD)" data={stats.byGrade} />
-          <BreakdownBar title="Cost by Plan Type (USD)" data={stats.byType} />
+      {/* ── Exam costs ── */}
+      <div>
+        <h3 className="text-base font-semibold text-gray-700 mb-4">Exam Generation</h3>
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 mb-6">
+          <StatCard title="Total Cost" value={loading ? '…' : formatCost(exam.totalCost)} icon={DollarSign} />
+          <StatCard title="Avg Cost / Exam" value={loading ? '…' : formatCost(exam.avgCost)} icon={TrendingUp} />
+          <StatCard title="Total Tokens" value={loading ? '…' : formatNumber(exam.totalTokens)} icon={Zap} />
+          <StatCard title="Avg Latency" value={loading ? '…' : `${exam.avgLatency.toFixed(1)}s`} icon={Clock} />
         </div>
-      )}
+        {!loading && (
+          <>
+            <MonthlyChart data={exam.byMonth} color="#f59e0b" label="Monthly Exam Generation Cost (USD)" />
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <BreakdownBar title="Cost by Model (USD)" data={exam.byModel} />
+              <BreakdownBar title="Cost by Grade (USD)" data={exam.byGrade} />
+              <BreakdownBar title="Cost by Subject (USD)" data={exam.bySubject} />
+            </div>
+          </>
+        )}
+      </div>
     </section>
   )
 }
