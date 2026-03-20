@@ -3,7 +3,6 @@ import { useDebounce } from 'use-debounce'
 import { useExplorerData } from '@/hooks/useMetrics'
 import { Select } from '@/components/Select'
 import { StatCard } from '@/components/StatCard'
-import { BreakdownBar } from '@/components/charts/BreakdownBar'
 import { formatCost, formatNumber } from '@/lib/utils'
 import { FileText, DollarSign, Zap, Users } from 'lucide-react'
 
@@ -11,14 +10,6 @@ function unique(arr) {
   return [...new Set(arr.filter(Boolean))].sort()
 }
 
-function countBy(rows, fn) {
-  const map = {}
-  for (const r of rows) {
-    const val = fn(r) || 'Unknown'
-    map[val] = (map[val] || 0) + 1
-  }
-  return Object.entries(map).sort(([, a], [, b]) => b - a).map(([name, count]) => ({ name, count }))
-}
 
 const SERVICE_LABELS = { all: 'All', lesson_plan: 'Lesson Plans', exam: 'Exams' }
 
@@ -216,59 +207,6 @@ export function Explorer() {
         <StatCard title="Total Tokens" value={formatNumber(stats.totalTokens)} icon={Zap} />
         <StatCard title="Teachers" value={stats.uniqueTeachers} icon={Users} />
       </div>
-
-      {/* Breakdown charts */}
-      {(filteredPlans.length > 0 || filteredExams.length > 0) && (() => {
-        const allRows = [...filteredPlans, ...filteredExams]
-        return (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <BreakdownBar title="By School Branch" data={countBy(allRows, r => r.user?.school_branch)} />
-            <BreakdownBar title="By Teacher" data={
-              countBy(allRows, r => r.user ? `${r.user.first_name ?? ''} ${r.user.last_name ?? ''}`.trim() || r.user.email : 'Unknown').slice(0, 10)
-            } />
-            <BreakdownBar title="By Grade" data={countBy(allRows, r => r._grade)} />
-            <BreakdownBar title="By Subject" data={countBy(allRows, r => r.subject)} />
-            {showLPs && <BreakdownBar title="By Textbook Tag" data={countBy(filteredPlans, r => r.textbook?.book_tag)} />}
-            {showExams && <BreakdownBar title="By Exam Status" data={countBy(filteredExams, r => r.status)} />}
-          </div>
-        )
-      })()}
-
-      {/* Textbooks table — only when lesson plans in scope */}
-      {showLPs && (
-        <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
-          <div className="px-5 py-4 border-b border-gray-100">
-            <h2 className="text-sm font-semibold text-gray-700">Textbooks in DB</h2>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 text-xs text-gray-500 uppercase">
-                <tr>
-                  {['Title', 'Subject', 'Grade', 'Book Tag', 'Book Type'].map(h => (
-                    <th key={h} className="px-4 py-3 text-left font-medium">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {(data?.textbooks ?? [])
-                  .filter(t => !filters.subject || t.subject === filters.subject)
-                  .filter(t => !filters.bookTag || t.book_tag === filters.bookTag)
-                  .map(t => (
-                    <tr key={t.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-3 text-gray-800 max-w-xs truncate">{t.title}</td>
-                      <td className="px-4 py-3 text-gray-600">{t.subject}</td>
-                      <td className="px-4 py-3 text-gray-600">{t.grade_level}</td>
-                      <td className="px-4 py-3">
-                        <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700">{t.book_tag}</span>
-                      </td>
-                      <td className="px-4 py-3 text-gray-600">{t.book_type}</td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
 
       {/* Lesson Plans table */}
       {showLPs && filteredPlans.length > 0 && (
